@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Brand Alabaster Background #F6F6F6 */
+    --background: 0 0% 96.5%;
+    /* Brand Dark Pine Foreground #223125 (HSL: 130 18% 16%) */
+    --foreground: 130 18% 16.5%;
+
+    /* Card background #FFFFFF */
+    --card: 0 0% 100%;
+    --card-foreground: 130 18% 16.5%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 130 18% 16.5%;
+
+    /* Primary: Brand Sage #729969 (HSL: 108 20% 51%) */
+    --primary: 108 20% 51%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Brand Celadon #A1C0C2 (HSL: 184 21% 70%) */
+    --secondary: 184 21% 70%;
+    --secondary-foreground: 130 18% 16.5%;
+
+    /* Muted: Brand Platinum Mist #E6E7EB (HSL: 225 9% 91%) */
+    --muted: 225 9% 91%;
+    --muted-foreground: 130 10% 40%;
+
+    /* Accent: Brand Pale Celadon highlight */
+    --accent: 184 21% 88%;
+    --accent-foreground: 130 18% 16.5%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    /* Border: Brand Platinum #E6E7EB */
+    --border: 225 9% 88%;
+    --input: 225 9% 88%;
+    --ring: 108 20% 51%;
+
+    --radius: 0.85rem;
+  }
+
+  .dark {
+    /* Brand Dark Pine #141D16 / #223125 */
+    --background: 132 18% 10%;
+    --foreground: 0 0% 96%;
+
+    /* Card in dark mode: Deep Pine #1A261D */
+    --card: 132 19% 14%;
+    --card-foreground: 0 0% 96%;
+
+    --popover: 132 19% 14%;
+    --popover-foreground: 0 0% 96%;
+
+    /* Primary in dark mode: Sage #729969 / Luminous Sage */
+    --primary: 108 26% 56%;
+    --primary-foreground: 132 18% 10%;
+
+    /* Secondary in dark mode: Celadon #A1C0C2 */
+    --secondary: 184 25% 65%;
+    --secondary-foreground: 132 18% 10%;
+
+    --muted: 132 15% 20%;
+    --muted-foreground: 184 15% 75%;
+
+    --accent: 132 18% 22%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 132 16% 22%;
+    --input: 132 16% 22%;
+    --ring: 108 26% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased font-body;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading tracking-tight;
+  }
+}
+
+/* Glassmorphism utility */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(230, 231, 235, 0.8);
+}
+
+.dark .glass-panel {
+  background: rgba(26, 38, 29, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(114, 153, 105, 0.2);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
