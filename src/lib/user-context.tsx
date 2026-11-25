@@ -1,7 +1,14 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, useRef } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from "react";
 import { getTimeUntilNextNoon } from "@/lib/utils";
+import { authClient } from "@/lib/auth/client";
+
+export interface AuthUserInfo {
+  id: string;
+  email: string;
+  name?: string | null;
+}
 
 export interface SavedActionStep {
   id: string;
@@ -15,6 +22,8 @@ export interface SavedActionStep {
 }
 
 export interface UserContextType {
+  user: AuthUserInfo | null;
+  isAuthLoading: boolean;
   isPro: boolean;
   plan: "free" | "pro";
   freeSecondsRemaining: number;
@@ -31,10 +40,11 @@ export interface UserContextType {
   toggleStepChecked: (stepId: string) => void;
   updateStepFeedback: (stepId: string, feedback: string) => void;
   resetFreeQuotaManually: () => void;
+  refreshUserState: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const TOTAL_FREE_SECONDS = 600; // 10 minutes
-const DEFAULT_USER_ID = "default-user";
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
@@ -43,81 +53,64 @@ async function postUserState(payload: Record<string, any>) {
     await fetch("/api/user/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: DEFAULT_USER_ID, ...payload }),
+      body: JSON.stringify(payload),
     });
   } catch {
-    // Keep optimistic local state if offline
+    // Keep optimistic state if offline
   }
 }
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
+  const { data: sessionData, isPending: isAuthLoading } = authClient.useSession();
+  const sessionUser = sessionData?.user
+    ? {
+        id: sessionData.user.id,
+        email: sessionData.user.email,
+        name: sessionData.user.name,
+      }
+    : null;
+
   const [isPro, setIsPro] = useState<boolean>(false);
   const [freeSecondsRemaining, setFreeSecondsRemaining] = useState<number>(TOTAL_FREE_SECONDS);
   const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [timeUntilReset, setTimeUntilReset] = useState<string>("");
   const [completedLessons, setCompletedLessons] = useState<string[]>([]);
   const [savedSteps, setSavedSteps] = useState<SavedActionStep[]>([]);
-  const [isInitialized, setIsInitialized] = useState<boolean>(false);
   const lastSyncedSecondsRef = useRef<number>(TOTAL_FREE_SECONDS);
 
-  // Hydrate from Lakebase Postgres (/api/user/state), falling back cleanly to localStorage
-  useEffect(() => {
-    let active = true;
-
-    async function hydrate() {
-      try {
-        const res = await fetch(`/api/user/state?userId=${DEFAULT_USER_ID}`);
-        if (res.ok && active) {
-          const data = await res.json();
-          setIsPro(data.plan === "pro");
-          setFreeSecondsRemaining(
-            typeof data.freeSecondsRemaining === "number"
-              ? data.freeSecondsRemaining
-              : TOTAL_FREE_SECONDS
-          );
-          lastSyncedSecondsRef.current = data.freeSecondsRemaining ?? TOTAL_FREE_SECONDS;
-          setCompletedLessons(Array.isArray(data.completedLessons) ? data.completedLessons : []);
-          setSavedSteps(Array.isArray(data.savedSteps) ? data.savedSteps : []);
-          setIsInitialized(true);
-          return;
-        }
-      } catch {
-        // Fallback to localStorage below
-      }
-
-      if (!active) return;
-      try {
-        const storedPlan = localStorage.getItem("mindbalance_plan");
-        if (storedPlan === "pro") setIsPro(true);
-        const storedCompleted = localStorage.getItem("mindbalance_completed_lessons");
-        if (storedCompleted) setCompletedLessons(JSON.parse(storedCompleted));
-        const storedSteps = localStorage.getItem("mindbalance_saved_steps");
-        if (storedSteps) setSavedSteps(JSON.parse(storedSteps));
-      } catch {
-        // Ignore
-      } finally {
-        setIsInitialized(true);
-      }
+  const refreshUserState = useCallback(async () => {
+    if (!sessionUser?.id) {
+      setIsPro(false);
+      setFreeSecondsRemaining(TOTAL_FREE_SECONDS);
+      setCompletedLessons([]);
+      setSavedSteps([]);
+      return;
     }
 
-    hydrate();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // Mirror state locally for fast client reloads
-  useEffect(() => {
-    if (!isInitialized) return;
     try {
-      localStorage.setItem("mindbalance_plan", isPro ? "pro" : "free");
-      localStorage.setItem("mindbalance_completed_lessons", JSON.stringify(completedLessons));
-      localStorage.setItem("mindbalance_saved_steps", JSON.stringify(savedSteps));
-      localStorage.setItem("mindbalance_free_seconds", freeSecondsRemaining.toString());
+      const res = await fetch("/api/user/state");
+      if (res.ok) {
+        const data = await res.json();
+        setIsPro(data.plan === "pro");
+        const remaining =
+          typeof data.freeSecondsRemaining === "number"
+            ? data.freeSecondsRemaining
+            : TOTAL_FREE_SECONDS;
+        setFreeSecondsRemaining(remaining);
+        lastSyncedSecondsRef.current = remaining;
+        setCompletedLessons(Array.isArray(data.completedLessons) ? data.completedLessons : []);
+        setSavedSteps(Array.isArray(data.savedSteps) ? data.savedSteps : []);
+      }
     } catch {
-      // Ignore
+      // Ignore network error
     }
-  }, [isPro, completedLessons, savedSteps, freeSecondsRemaining, isInitialized]);
+  }, [sessionUser?.id]);
+
+  useEffect(() => {
+    if (!isAuthLoading) {
+      refreshUserState();
+    }
+  }, [isAuthLoading, refreshUserState]);
 
   // Dynamic countdown to next 12:00 PM (noon)
   useEffect(() => {
@@ -128,18 +121,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       const now = new Date();
       if (now.getHours() === 12 && now.getMinutes() === 0 && now.getSeconds() < 2) {
         setFreeSecondsRemaining(TOTAL_FREE_SECONDS);
-        postUserState({
-          action: "syncQuota",
-          freeSecondsRemaining: TOTAL_FREE_SECONDS,
-          resetTimestamp: now.toISOString(),
-        });
+        if (sessionUser?.id) {
+          postUserState({
+            action: "syncQuota",
+            freeSecondsRemaining: TOTAL_FREE_SECONDS,
+            resetTimestamp: now.toISOString(),
+          });
+        }
       }
     };
 
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [sessionUser?.id]);
 
   // Timer tick for active coach chat + periodic DB sync every 5 seconds
   useEffect(() => {
@@ -149,7 +144,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setFreeSecondsRemaining((prev) => {
         const next = prev <= 1 ? 0 : prev - 1;
         if (next === 0) setIsTimerRunning(false);
-        if (Math.abs(lastSyncedSecondsRef.current - next) >= 5 || next === 0) {
+        if (sessionUser?.id && (Math.abs(lastSyncedSecondsRef.current - next) >= 5 || next === 0)) {
           lastSyncedSecondsRef.current = next;
           postUserState({ action: "syncQuota", freeSecondsRemaining: next });
         }
@@ -158,12 +153,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isTimerRunning, isPro]);
+  }, [isTimerRunning, isPro, sessionUser?.id]);
 
   const toggleTimer = (running: boolean) => {
     if (freeSecondsRemaining <= 0 && !isPro && running) return;
     setIsTimerRunning(running);
-    if (!running) {
+    if (!running && sessionUser?.id) {
       lastSyncedSecondsRef.current = freeSecondsRemaining;
       postUserState({ action: "syncQuota", freeSecondsRemaining });
     }
@@ -173,20 +168,22 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     if (isPro) return;
     setFreeSecondsRemaining((prev) => {
       const next = Math.max(0, prev - delta);
-      postUserState({ action: "syncQuota", freeSecondsRemaining: next });
+      if (sessionUser?.id) {
+        postUserState({ action: "syncQuota", freeSecondsRemaining: next });
+      }
       return next;
     });
   };
 
   const setPlan = (newPlan: "free" | "pro") => {
-    const proActive = newPlan === "pro";
-    setIsPro(proActive);
-    postUserState({ action: "setPlan", plan: newPlan });
+    setIsPro(newPlan === "pro");
   };
 
   const markLessonComplete = (lessonId: string) => {
     setCompletedLessons((prev) => (prev.includes(lessonId) ? prev : [...prev, lessonId]));
-    postUserState({ action: "completeLesson", lessonId });
+    if (sessionUser?.id) {
+      postUserState({ action: "completeLesson", lessonId });
+    }
   };
 
   const saveActionStep = (step: SavedActionStep) => {
@@ -199,7 +196,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       }
       return [step, ...prev];
     });
-    postUserState({ action: "upsertStep", step });
+    if (sessionUser?.id) {
+      postUserState({ action: "upsertStep", step });
+    }
   };
 
   const toggleStepChecked = (stepId: string) => {
@@ -207,7 +206,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       prev.map((s) => {
         if (s.id === stepId) {
           const updated = { ...s, checked: !s.checked };
-          postUserState({ action: "upsertStep", step: updated });
+          if (sessionUser?.id) {
+            postUserState({ action: "upsertStep", step: updated });
+          }
           return updated;
         }
         return s;
@@ -221,7 +222,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       prev.map((s) => {
         if (s.id === stepId) {
           const updated = { ...s, proFeedback: feedback, verifiedAt };
-          postUserState({ action: "upsertStep", step: updated });
+          if (sessionUser?.id) {
+            postUserState({ action: "upsertStep", step: updated });
+          }
           return updated;
         }
         return s;
@@ -232,16 +235,28 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const resetFreeQuotaManually = () => {
     setFreeSecondsRemaining(TOTAL_FREE_SECONDS);
     lastSyncedSecondsRef.current = TOTAL_FREE_SECONDS;
-    postUserState({
-      action: "syncQuota",
-      freeSecondsRemaining: TOTAL_FREE_SECONDS,
-      resetTimestamp: new Date().toISOString(),
-    });
+    if (sessionUser?.id) {
+      postUserState({
+        action: "syncQuota",
+        freeSecondsRemaining: TOTAL_FREE_SECONDS,
+        resetTimestamp: new Date().toISOString(),
+      });
+    }
+  };
+
+  const signOut = async () => {
+    await authClient.signOut();
+    setIsPro(false);
+    setFreeSecondsRemaining(TOTAL_FREE_SECONDS);
+    setCompletedLessons([]);
+    setSavedSteps([]);
   };
 
   return (
     <UserContext.Provider
       value={{
+        user: sessionUser,
+        isAuthLoading,
         isPro,
         plan: isPro ? "pro" : "free",
         freeSecondsRemaining,
@@ -258,6 +273,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         toggleStepChecked,
         updateStepFeedback,
         resetFreeQuotaManually,
+        refreshUserState,
+        signOut,
       }}
     >
       {children}

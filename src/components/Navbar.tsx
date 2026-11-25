@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Brain,
   Sparkles,
@@ -13,6 +13,9 @@ import {
   Menu,
   X,
   ShieldCheck,
+  User,
+  LogOut,
+  LogIn,
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { DailyQuotaTimer } from "./DailyQuotaTimer";
@@ -20,7 +23,8 @@ import { useUser } from "@/lib/user-context";
 
 export default function Navbar() {
   const pathname = usePathname();
-  const { isPro, setPlan } = useUser();
+  const router = useRouter();
+  const { user, isAuthLoading, isPro, signOut } = useUser();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -29,6 +33,13 @@ export default function Navbar() {
     { href: "/roadmap", label: "Программа", icon: BookOpen },
     { href: "/pricing", label: "Тарифы", icon: CreditCard },
   ];
+
+  const handleSignOut = async () => {
+    await signOut();
+    setMobileMenuOpen(false);
+    router.push("/");
+    router.refresh();
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/80 backdrop-blur-md transition-colors">
@@ -75,60 +86,74 @@ export default function Navbar() {
           })}
         </nav>
 
-        {/* Right Section: Quota, Plan Switcher, Theme, CTA */}
+        {/* Right Section: Quota, Auth User, Theme, CTA */}
         <div className="flex items-center gap-2.5">
-          {/* Daily Quota Timer Pill */}
-          <div className="hidden sm:block">
-            <DailyQuotaTimer compact />
-          </div>
-
-          {/* Quick Demo Plan Switcher */}
-          <div className="hidden lg:flex items-center bg-muted/70 rounded-full p-0.5 border border-border text-[11px]">
-            <button
-              onClick={() => setPlan("free")}
-              className={`px-2.5 py-0.5 rounded-full font-medium transition ${
-                !isPro
-                  ? "bg-card text-foreground shadow-xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Переключить в режим Free для проверки лимитов"
-            >
-              Free
-            </button>
-            <button
-              onClick={() => setPlan("pro")}
-              className={`px-2.5 py-0.5 rounded-full font-medium transition flex items-center gap-1 ${
-                isPro
-                  ? "bg-brand-sage text-white shadow-xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Переключить в режим Pro для проверки полного доступа"
-            >
-              <Sparkles className="w-3 h-3" />
-              Pro
-            </button>
-          </div>
-
-          {/* Pro Action Button or Badge */}
-          {isPro ? (
-            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-sage/20 border border-brand-sage/40 text-brand-sage dark:text-emerald-400 text-xs font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Pro Активен</span>
+          {user && (
+            <div className="hidden sm:block">
+              <DailyQuotaTimer compact />
             </div>
-          ) : (
-            <Link
-              href="/pricing"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-brand-dark dark:bg-brand-sage text-white text-xs font-semibold hover:bg-brand-dark/90 dark:hover:bg-brand-sage/90 transition shadow-sm"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-brand-celadon" />
-              <span>Тариф Pro</span>
-            </Link>
           )}
 
-          {/* Theme Toggle */}
+          {!isAuthLoading && user ? (
+            <>
+              {isPro ? (
+                <Link
+                  href="/profile"
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-sage/20 border border-brand-sage/40 text-brand-sage dark:text-emerald-400 text-xs font-semibold"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Pro</span>
+                </Link>
+              ) : (
+                <Link
+                  href="/pricing"
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-brand-dark dark:bg-brand-sage text-white text-xs font-semibold hover:opacity-90 transition shadow-sm"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-brand-celadon" />
+                  <span>Тариф Pro</span>
+                </Link>
+              )}
+
+              <Link
+                href="/profile"
+                className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-border bg-card hover:border-brand-sage/50 text-xs font-medium text-foreground transition"
+                title={user.email}
+              >
+                <User className="w-3.5 h-3.5 text-brand-sage" />
+                <span className="max-w-[110px] truncate">
+                  {user.name || user.email.split("@")[0]}
+                </span>
+              </Link>
+
+              <button
+                onClick={handleSignOut}
+                className="hidden sm:flex items-center justify-center w-9 h-9 rounded-full border border-border hover:border-rose-400/50 bg-card hover:bg-rose-500/10 text-muted-foreground hover:text-rose-500 transition"
+                title="Выйти из аккаунта"
+                aria-label="Выйти"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </>
+          ) : !isAuthLoading ? (
+            <div className="hidden sm:flex items-center gap-2">
+              <Link
+                href="/auth/sign-in"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-border bg-card hover:border-brand-sage/50 text-xs font-semibold text-foreground transition"
+              >
+                <LogIn className="w-3.5 h-3.5 text-brand-sage" />
+                <span>Войти</span>
+              </Link>
+              <Link
+                href="/auth/sign-up"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-brand-dark dark:bg-brand-sage text-white text-xs font-semibold hover:opacity-90 transition shadow-sm"
+              >
+                <span>Регистрация</span>
+              </Link>
+            </div>
+          ) : null}
+
           <ThemeToggle />
 
-          {/* Mobile menu trigger */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -142,9 +167,20 @@ export default function Navbar() {
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
         <div className="md:hidden border-b border-border bg-background p-4 space-y-3">
-          <div className="pb-2 border-b border-border">
-            <DailyQuotaTimer compact />
-          </div>
+          {user && (
+            <div className="pb-2 border-b border-border flex items-center justify-between">
+              <DailyQuotaTimer compact />
+              <Link
+                href="/profile"
+                onClick={() => setMobileMenuOpen(false)}
+                className="text-xs font-semibold text-brand-sage flex items-center gap-1"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>{user.name || user.email}</span>
+              </Link>
+            </div>
+          )}
+
           <nav className="space-y-1">
             {navLinks.map((link) => {
               const Icon = link.icon;
@@ -166,22 +202,34 @@ export default function Navbar() {
               );
             })}
           </nav>
-          <div className="pt-2 flex items-center justify-between border-t border-border">
-            <span className="text-xs text-muted-foreground">Режим тарифа:</span>
-            <div className="flex items-center bg-muted rounded-full p-0.5 border border-border text-xs">
+
+          <div className="pt-2 border-t border-border">
+            {user ? (
               <button
-                onClick={() => setPlan("free")}
-                className={`px-3 py-1 rounded-full ${!isPro ? "bg-card font-bold" : "text-muted-foreground"}`}
+                onClick={handleSignOut}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-rose-500/30 text-rose-500 text-xs font-semibold"
               >
-                Free
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Выйти ({user.email})</span>
               </button>
-              <button
-                onClick={() => setPlan("pro")}
-                className={`px-3 py-1 rounded-full ${isPro ? "bg-brand-sage text-white font-bold" : "text-muted-foreground"}`}
-              >
-                Pro
-              </button>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href="/auth/sign-in"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-center py-2 rounded-xl border border-border text-xs font-semibold"
+                >
+                  Войти
+                </Link>
+                <Link
+                  href="/auth/sign-up"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-center py-2 rounded-xl bg-brand-sage text-white text-xs font-semibold"
+                >
+                  Регистрация
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -1,5 +1,7 @@
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id TEXT PRIMARY KEY,
+  email TEXT,
+  name TEXT,
   plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
   free_seconds_remaining INTEGER NOT NULL DEFAULT 600,
   last_noon_reset TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -7,6 +9,15 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   stripe_subscription_id TEXT,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS name TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_user_profiles_stripe_customer
+  ON user_profiles (stripe_customer_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_profiles_stripe_subscription
+  ON user_profiles (stripe_subscription_id);
 
 CREATE TABLE IF NOT EXISTS completed_lessons (
   user_id TEXT NOT NULL REFERENCES user_profiles(user_id) ON DELETE CASCADE,

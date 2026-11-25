@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/server";
 import { generateCoachResponse } from "@/lib/gemini";
-import { getCoachMessages, saveCoachMessage } from "@/lib/db";
+import { ensureUserProfile, getCoachMessages, saveCoachMessage } from "@/lib/db";
 
-const DEFAULT_USER_ID = "default-user";
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const userId = req.nextUrl.searchParams.get("userId") || DEFAULT_USER_ID;
-    const messages = await getCoachMessages(userId, 50);
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const messages = await getCoachMessages(session.user.id, 50);
     return NextResponse.json({ messages });
   } catch (error: any) {
     console.error("GET /api/chat error:", error);
@@ -17,11 +20,28 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { messages, isPro, stateDetails, freeSecondsRemaining, userId = DEFAULT_USER_ID } = body;
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    // Check if free user has exhausted daily limit
-    if (!isPro && typeof freeSecondsRemaining === "number" && freeSecondsRemaining <= 0) {
+    const userId = session.user.id;
+    const profile = await ensureUserProfile(userId, {
+      email: session.user.email,
+      name: session.user.name,
+    });
+    const isPro = profile.plan === "pro";
+
+    const body = await req.json();
+    const { messages, stateDetails, freeSecondsRemaining } = body;
+
+    // Enforce server-side and client-side quota for Free users
+    const effectiveRemaining =
+      typeof freeSecondsRemaining === "number"
+        ? Math.min(profile.free_seconds_remaining, freeSecondsRemaining)
+        : profile.free_seconds_remaining;
+
+    if (!isPro && effectiveRemaining <= 0) {
       return NextResponse.json(
         {
           error: "DAILY_LIMIT_REACHED",
@@ -43,23 +63,21 @@ export async function POST(req: NextRequest) {
 
     const lastUserMessage = messages[messages.length - 1]?.content;
     if (lastUserMessage) {
-      // Persist user message to Lakebase Postgres asynchronously/safely
       await saveCoachMessage(userId, "user", String(lastUserMessage), false).catch((err) =>
         console.warn("Failed to persist user message:", err.message)
       );
     }
 
-    const reply = await generateCoachResponse(formattedHistory, Boolean(isPro), stateDetails);
+    const reply = await generateCoachResponse(formattedHistory, isPro, stateDetails);
 
-    // Persist assistant reply to Lakebase Postgres
-    await saveCoachMessage(userId, "assistant", reply, Boolean(isPro)).catch((err) =>
+    await saveCoachMessage(userId, "assistant", reply, isPro).catch((err) =>
       console.warn("Failed to persist assistant message:", err.message)
     );
 
     return NextResponse.json({
       role: "assistant",
       content: reply,
-      isPro: Boolean(isPro),
+      isPro,
     });
   } catch (error: any) {
     console.error("Chat API error:", error);

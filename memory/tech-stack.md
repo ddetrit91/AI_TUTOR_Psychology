@@ -18,7 +18,8 @@
   - Model: `gemini-3.5-flash-lite` (via `@google/genai` or `@google/generative-ai` with CBT, ACT, Schema therapy prompt engineering)
 - **Billing & Subscriptions**:
   - Stripe (`stripe`, `@stripe/stripe-js`) with Checkout Sessions, Webhooks, Customer Portal & Mock mode for test environments.
-- **Database & Storage (Neon)**:
+- **Database, Auth & Storage (Neon)**:
+  - **Neon Auth** (`@neon/auth` Managed Better Auth) — регистрация, вход, сессии в схеме `neon_auth` и защита роутов в `src/proxy.ts`
   - **Lakebase Postgres** (branch `production`, project `cool-forest-97420522`) via `@neondatabase/serverless` (`DATABASE_URL` pooled for runtime, `DATABASE_URL_UNPOOLED` direct for migrations)
   - **Neon Object Storage** (private bucket `uploads`) via `files-sdk/neon` (`AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
   - **Infrastructure as Code**: `neon.ts` (`@neon/config/v1`)

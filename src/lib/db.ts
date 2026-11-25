@@ -10,6 +10,8 @@ function getSql() {
 
 export interface DbUserProfile {
   user_id: string;
+  email: string | null;
+  name: string | null;
   plan: "free" | "pro";
   free_seconds_remaining: number;
   last_noon_reset: string;
@@ -64,17 +66,22 @@ function getMostRecentNoonBoundary(now = new Date()): Date {
 /**
  * Ensures the user profile exists and applies daily noon (12:00 PM) reset if needed.
  */
-export async function ensureUserProfile(userId: string): Promise<DbUserProfile> {
+export async function ensureUserProfile(
+  userId: string,
+  meta?: { email?: string | null; name?: string | null }
+): Promise<DbUserProfile> {
   const sql = getSql();
 
   await sql`
-    INSERT INTO user_profiles (user_id, plan, free_seconds_remaining, last_noon_reset)
-    VALUES (${userId}, 'free', ${TOTAL_FREE_SECONDS}, NOW())
-    ON CONFLICT (user_id) DO NOTHING
+    INSERT INTO user_profiles (user_id, email, name, plan, free_seconds_remaining, last_noon_reset)
+    VALUES (${userId}, ${meta?.email ?? null}, ${meta?.name ?? null}, 'free', ${TOTAL_FREE_SECONDS}, NOW())
+    ON CONFLICT (user_id) DO UPDATE SET
+      email = COALESCE(EXCLUDED.email, user_profiles.email),
+      name = COALESCE(EXCLUDED.name, user_profiles.name)
   `;
 
   const rows = await sql`
-    SELECT user_id, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
+    SELECT user_id, email, name, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
     FROM user_profiles
     WHERE user_id = ${userId}
   `;
@@ -90,7 +97,7 @@ export async function ensureUserProfile(userId: string): Promise<DbUserProfile> 
           last_noon_reset = NOW(),
           updated_at = NOW()
       WHERE user_id = ${userId}
-      RETURNING user_id, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
+      RETURNING user_id, email, name, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
     `;
     return updated[0] as DbUserProfile;
   }
@@ -114,9 +121,30 @@ export async function updateUserPlan(
         stripe_subscription_id = COALESCE(${stripeSubscriptionId ?? null}, stripe_subscription_id),
         updated_at = NOW()
     WHERE user_id = ${userId}
-    RETURNING user_id, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
+    RETURNING user_id, email, name, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
   `;
   return rows[0] as DbUserProfile;
+}
+
+export async function updateUserPlanByStripe(
+  plan: "free" | "pro",
+  stripeCustomerId?: string | null,
+  stripeSubscriptionId?: string | null
+): Promise<DbUserProfile | null> {
+  const sql = getSql();
+  if (!stripeCustomerId && !stripeSubscriptionId) return null;
+
+  const rows = await sql`
+    UPDATE user_profiles
+    SET plan = ${plan},
+        updated_at = NOW()
+    WHERE (
+      (${stripeSubscriptionId ?? null}::text IS NOT NULL AND stripe_subscription_id = ${stripeSubscriptionId ?? null})
+      OR (${stripeCustomerId ?? null}::text IS NOT NULL AND stripe_customer_id = ${stripeCustomerId ?? null})
+    )
+    RETURNING user_id, email, name, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
+  `;
+  return (rows[0] as DbUserProfile) || null;
 }
 
 export async function updateUserQuota(
@@ -136,14 +164,14 @@ export async function updateUserQuota(
             last_noon_reset = ${resetTimestamp}::timestamptz,
             updated_at = NOW()
         WHERE user_id = ${userId}
-        RETURNING user_id, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
+        RETURNING user_id, email, name, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
       `
     : await sql`
         UPDATE user_profiles
         SET free_seconds_remaining = ${clamped},
             updated_at = NOW()
         WHERE user_id = ${userId}
-        RETURNING user_id, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
+        RETURNING user_id, email, name, plan, free_seconds_remaining, last_noon_reset, stripe_customer_id, stripe_subscription_id
       `;
   return rows[0] as DbUserProfile;
 }

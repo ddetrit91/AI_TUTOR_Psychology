@@ -1,16 +1,23 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Sparkles, Clock, RefreshCw, ShieldCheck, ArrowRight, Zap } from "lucide-react";
+import { Check, Sparkles, Clock, RefreshCw, ShieldCheck, Zap, LogIn } from "lucide-react";
 import { useUser } from "@/lib/user-context";
 import { STRIPE_PRO_PLAN } from "@/lib/stripe";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function PricingPage() {
-  const { isPro, setPlan, timeUntilReset } = useUser();
+  const router = useRouter();
+  const { user, isPro } = useUser();
   const [loading, setLoading] = useState(false);
 
   const handleSubscribePro = async () => {
+    if (!user) {
+      router.push("/auth/sign-in?redirect=/pricing");
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/checkout", {
@@ -18,16 +25,16 @@ export default function PricingPage() {
         headers: { "Content-Type": "application/json" },
       });
 
+      if (res.status === 401) {
+        router.push("/auth/sign-in?redirect=/pricing");
+        return;
+      }
+
       const data = await res.json();
       if (data.url) {
-        if (data.isMock) {
-          // Instantly activate Pro in local state
-          setPlan("pro");
-          window.location.href = data.url;
-        } else {
-          // Redirect to real Stripe Checkout
-          window.location.href = data.url;
-        }
+        window.location.href = data.url;
+      } else {
+        alert(data.message || "Не удалось создать сессию оплаты Stripe.");
       }
     } catch {
       alert("Ошибка при переходе к оплате Stripe.");
@@ -47,7 +54,7 @@ export default function PricingPage() {
           Инвестируйте в своё психологическое здоровье
         </h1>
         <p className="text-sm sm:text-base text-muted-foreground mt-3 leading-relaxed">
-          Начните бесплатно с 10 минутами ежедневной практики или откройте безграничный глубиннный диалог и экспертные уровни.
+          Начните бесплатно с 10 минутами ежедневной практики или привяжите безграничный Pro-доступ к вашему аккаунту через Stripe.
         </p>
       </div>
 
@@ -60,7 +67,7 @@ export default function PricingPage() {
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-muted text-muted-foreground uppercase tracking-wider">
                 Базовый
               </span>
-              {!isPro && (
+              {user && !isPro && (
                 <span className="text-xs font-semibold text-brand-sage bg-brand-sage/15 px-2.5 py-0.5 rounded-full">
                   Ваш текущий план
                 </span>
@@ -117,21 +124,12 @@ export default function PricingPage() {
           </div>
 
           <div className="mt-8 pt-6 border-t border-border">
-            {!isPro ? (
-              <Link
-                href="/coach"
-                className="w-full block text-center py-3 rounded-2xl bg-muted text-foreground font-semibold text-xs hover:bg-muted/80 transition"
-              >
-                Продолжить практику (Free)
-              </Link>
-            ) : (
-              <button
-                onClick={() => setPlan("free")}
-                className="w-full text-center py-2.5 rounded-2xl border border-border text-muted-foreground font-medium text-xs hover:text-foreground hover:bg-muted transition"
-              >
-                Переключить в режим Free для проверки
-              </button>
-            )}
+            <Link
+              href={user ? "/coach" : "/auth/sign-up"}
+              className="w-full block text-center py-3 rounded-2xl bg-muted text-foreground font-semibold text-xs hover:bg-muted/80 transition"
+            >
+              {user ? "Продолжить практику (Free)" : "Начать бесплатно"}
+            </Link>
           </div>
         </div>
 
@@ -147,7 +145,7 @@ export default function PricingPage() {
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-brand-sage text-white uppercase tracking-wider">
                 Pro Безлимит
               </span>
-              {isPro && (
+              {user && isPro && (
                 <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>Активен</span>
@@ -206,10 +204,10 @@ export default function PricingPage() {
           </div>
 
           <div className="mt-8 pt-6 border-t border-border">
-            {isPro ? (
+            {user && isPro ? (
               <div className="space-y-2">
                 <div className="w-full text-center py-2.5 rounded-2xl bg-brand-sage/20 text-brand-sage font-bold text-xs">
-                  ✅ Подписка Pro активна
+                  ✅ Подписка Pro привязана к {user.email}
                 </div>
                 <Link
                   href="/coach"
@@ -218,6 +216,14 @@ export default function PricingPage() {
                   Перейти к безлимитному диалогу
                 </Link>
               </div>
+            ) : !user ? (
+              <Link
+                href="/auth/sign-in?redirect=/pricing"
+                className="w-full py-3.5 rounded-2xl bg-brand-dark dark:bg-brand-sage text-white font-bold text-xs sm:text-sm hover:opacity-95 transition flex items-center justify-center gap-2 shadow-md"
+              >
+                <LogIn className="w-4 h-4 text-brand-celadon" />
+                <span>Войти для подключения Pro</span>
+              </Link>
             ) : (
               <button
                 onClick={handleSubscribePro}
@@ -235,7 +241,9 @@ export default function PricingPage() {
               </button>
             )}
             <p className="text-[11px] text-center text-muted-foreground mt-2">
-              Безопасная оплата Stripe &bull; Отмена в любой момент
+              {user
+                ? `Подписка привяжется к аккаунту ${user.email}`
+                : "Безопасная оплата Stripe • Привязка к личному аккаунту"}
             </p>
           </div>
         </div>

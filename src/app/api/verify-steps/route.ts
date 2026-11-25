@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/server";
+import { ensureUserProfile } from "@/lib/db";
 import { verifyActionStepAI } from "@/lib/gemini";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { stepTitle, userReflection, isPro } = body;
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (!isPro) {
+    const profile = await ensureUserProfile(session.user.id);
+    if (profile.plan !== "pro") {
       return NextResponse.json(
         {
           error: "PRO_REQUIRED",
@@ -15,6 +20,9 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
+
+    const body = await req.json();
+    const { stepTitle, userReflection } = body;
 
     if (!stepTitle) {
       return NextResponse.json({ error: "stepTitle is required" }, { status: 400 });

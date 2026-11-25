@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth/server";
 import {
   ensureUserProfile,
   getCompletedLessons,
   getActionSteps,
-  updateUserPlan,
   updateUserQuota,
   addCompletedLesson,
   upsertActionStep,
 } from "@/lib/db";
 
-const DEFAULT_USER_ID = "default-user";
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const userId = req.nextUrl.searchParams.get("userId") || DEFAULT_USER_ID;
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
+    const userId = session.user.id;
     const [profile, completedLessons, rawSteps] = await Promise.all([
-      ensureUserProfile(userId),
+      ensureUserProfile(userId, { email: session.user.email, name: session.user.name }),
       getCompletedLessons(userId),
       getActionSteps(userId),
     ]);
@@ -34,7 +36,10 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       userId: profile.user_id,
+      email: profile.email || session.user.email,
+      name: profile.name || session.user.name,
       plan: profile.plan,
+      hasStripeCustomer: Boolean(profile.stripe_customer_id),
       freeSecondsRemaining: profile.free_seconds_remaining,
       lastNoonReset: profile.last_noon_reset,
       completedLessons,
@@ -51,16 +56,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id;
     const body = await req.json();
-    const userId = body.userId || DEFAULT_USER_ID;
     const { action } = body;
 
     switch (action) {
-      case "setPlan": {
-        const plan = body.plan === "pro" ? "pro" : "free";
-        const profile = await updateUserPlan(userId, plan);
-        return NextResponse.json({ plan: profile.plan });
-      }
       case "syncQuota": {
         const profile = await updateUserQuota(
           userId,

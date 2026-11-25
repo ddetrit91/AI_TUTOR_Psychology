@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { auth } from "@/lib/auth/server";
 import {
   createJournalAttachment,
   listJournalAttachments,
@@ -11,11 +12,14 @@ import {
   deleteJournalObject,
 } from "@/lib/storage";
 
-const DEFAULT_USER_ID = "default-user";
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const userId = req.nextUrl.searchParams.get("userId") || DEFAULT_USER_ID;
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id;
     const rows = await listJournalAttachments(userId);
 
     const attachments = await Promise.all(
@@ -47,11 +51,16 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id;
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     const title = String(formData.get("title") || "Заметка состояния");
     const notes = formData.get("notes") ? String(formData.get("notes")) : undefined;
-    const userId = String(formData.get("userId") || DEFAULT_USER_ID);
 
     if (!file) {
       return NextResponse.json({ error: "File is required" }, { status: 400 });
@@ -63,10 +72,8 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const contentType = file.type || "application/octet-stream";
 
-    // 1. Upload binary into private Neon Object Storage bucket ("uploads")
     await uploadJournalObject(objectKey, buffer, contentType);
 
-    // 2. Store metadata & key in Lakebase Postgres on the same branch
     const row = await createJournalAttachment(userId, {
       id,
       title,
@@ -77,7 +84,6 @@ export async function POST(req: NextRequest) {
       sizeBytes: buffer.length,
     });
 
-    // 3. Return presigned GET URL
     const url = await getJournalObjectUrl(objectKey, 3600);
 
     return NextResponse.json({
@@ -104,8 +110,13 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const { data: session } = await auth.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const userId = session.user.id;
     const id = req.nextUrl.searchParams.get("id");
-    const userId = req.nextUrl.searchParams.get("userId") || DEFAULT_USER_ID;
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });

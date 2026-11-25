@@ -25,12 +25,23 @@ import confetti from "canvas-confetti";
 function DashboardContent() {
   const searchParams = useSearchParams();
   const paymentStatus = searchParams?.get("payment");
-  const { isPro, setPlan, completedLessons, savedSteps, toggleStepChecked } = useUser();
+  const sessionId = searchParams?.get("session_id");
+  const { user, isPro, refreshUserState, completedLessons, savedSteps, toggleStepChecked } =
+    useUser();
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
 
   useEffect(() => {
-    if (paymentStatus === "success") {
-      setPlan("pro");
+    if (paymentStatus !== "success") return;
+
+    async function verifyStripe() {
+      if (sessionId) {
+        await fetch("/api/checkout/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        }).catch(() => {});
+      }
+      await refreshUserState();
       setShowSuccessBanner(true);
       confetti({
         particleCount: 100,
@@ -39,7 +50,9 @@ function DashboardContent() {
         colors: ["#729969", "#A1C0C2", "#223125"],
       });
     }
-  }, [paymentStatus, setPlan]);
+
+    verifyStripe();
+  }, [paymentStatus, sessionId, refreshUserState]);
 
   const allLessons = getAllLessons();
   const completedCount = completedLessons.length;
